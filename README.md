@@ -15,8 +15,11 @@ This code accompanies the paper:
 > *[Enhanced Multispectral Rendering with a Unified Complex-Index Fresnel Model in Blender.]*  
 > *[The Visual Computer]*
 
-The implementation enables evaluation of a physically complete Fresnel
-model for dielectric materials in Blender’s Cycles renderer.
+The implementation enables evaluation of a physically complete Fresnel model describing the full Fresnel calculation at an
+interface between two media with complex wavelength dependent IORs, without any approximations!
+This unifies dielectric materials, conductors and everything in between for every spectral domain 
+from UV to LWIR (long wave infrared) in Blender’s Cycles renderer.
+
 
 ## Code base
 This work is based on Blender upstream commit:
