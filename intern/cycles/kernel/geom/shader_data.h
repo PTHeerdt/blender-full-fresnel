@@ -115,6 +115,8 @@ ccl_device_inline void shader_setup_from_ray(KernelGlobals kg,
   sd->dI = differential_incoming_compact(ray->dD);
   differential_dudv_compact(&sd->du, &sd->dv, sd->dPdu, sd->dPdv, sd->dP, sd->Ng);
 #endif
+
+  sd->which_refracted = ray->which_refracted; //CODE PETER TER HEERDT UANTWERPEN*************************************
 }
 
 /* ShaderData setup from position sampled on mesh */

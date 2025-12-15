@@ -2556,6 +2556,117 @@ void MetallicBsdfNode::compile(OSLCompiler &compiler)
   compiler.add(this, "node_metallic_bsdf");
 }
 
+//************************************************************************************************************
+//START CODE PETER TER HEERDT UAntwerpen *********************************************************************
+//************************************************************************************************************
+
+NODE_DEFINE(FullFresnelBsdfNode)
+{
+    NodeType *type = NodeType::add("full_fresnel_bsdf", create, NodeType::SHADER);
+
+    SOCKET_IN_COLOR(color, "Base Color", make_float3(0.617f, 0.577f, 0.540f));
+    SOCKET_IN_NORMAL(normal, "Normal", zero_float3(), SocketType::LINK_NORMAL);
+    SOCKET_IN_FLOAT(surface_mix_weight, "SurfaceMixWeight", 0.0f, SocketType::SVM_INTERNAL);
+
+    static NodeEnum distribution_enum;
+    distribution_enum.insert("beckmann", CLOSURE_BSDF_MICROFACET_BECKMANN_GLASS_ID);
+    distribution_enum.insert("ggx", CLOSURE_BSDF_MICROFACET_GGX_GLASS_ID);
+    distribution_enum.insert("multi_ggx", CLOSURE_BSDF_MICROFACET_MULTI_GGX_GLASS_ID);
+    SOCKET_ENUM(distribution, "Distribution", distribution_enum, CLOSURE_BSDF_MICROFACET_MULTI_GGX_GLASS_ID);
+
+    SOCKET_IN_VECTOR(ior_object, "n Object", make_float3(1.5f, 1.5f, 1.5f));
+    SOCKET_IN_VECTOR(k_object, "k Object", make_float3(0.f, 0.f, 0.f));
+    SOCKET_IN_VECTOR(ior_medium, "n Medium", make_float3(1.f, 1.f, 1.f));
+    SOCKET_IN_VECTOR(k_medium, "k Medium", make_float3(0.f, 0.f, 0.f));
+
+    SOCKET_IN_VECTOR(tangent, "Tangent", zero_float3(), SocketType::LINK_TANGENT);
+
+    SOCKET_IN_FLOAT(roughness, "Roughness", 0.f);
+    SOCKET_IN_FLOAT(anisotropy, "Anisotropy", 0.f);
+    SOCKET_IN_FLOAT(rotation, "Rotation", 0.f);
+    SOCKET_IN_FLOAT(temperature, "Temperature", 0.f);
+
+    SOCKET_OUT_CLOSURE(BSDF, "BSDF");
+
+    return type;
+}
+
+FullFresnelBsdfNode::FullFresnelBsdfNode() : BsdfNode(get_node_type())
+{
+  closure = CLOSURE_BSDF_FULL_FRESNEL_ID;
+}
+
+bool FullFresnelBsdfNode::is_isotropic()
+{
+  ShaderInput *anisotropy_input = input("Anisotropy");
+  /* Keep in sync with the thresholds in OSL's node_full_fresnel_bsdf and SVM's
+   * svm_node_full_fresnel_bsdf. */
+  return (!anisotropy_input->link && fabsf(anisotropy) <= 1e-4f);
+}
+
+void FullFresnelBsdfNode::attributes(Shader *shader, AttributeRequestSet *attributes)
+{
+  if (shader->has_surface_link()) {
+    ShaderInput *tangent_in = input("Tangent");
+    if (!tangent_in->link && !is_isotropic()) {
+      attributes->add(ATTR_STD_GENERATED);
+    }
+  }
+
+  ShaderNode::attributes(shader, attributes);
+}
+
+void FullFresnelBsdfNode::simplify_settings(Scene * /* scene */)
+{
+  /* If the anisotropy is close enough to zero, fall back to the isotropic case. */
+  ShaderInput *tangent_input = input("Tangent");
+  if (tangent_input->link && is_isotropic()) {
+    tangent_input->disconnect();
+  }
+}
+
+void FullFresnelBsdfNode::compile(SVMCompiler &compiler)
+{
+  compiler.add_node(NODE_CLOSURE_SET_WEIGHT, one_float3());
+
+  ShaderInput *base_color_in = input("Base Color");
+  ShaderInput *ior_object_in = input("n Object");
+  ShaderInput *k_object_in = input("k Object");
+  ShaderInput *ior_medium_in = input("n Medium");
+  ShaderInput *k_medium_in = input("k Medium");
+  ShaderInput *anisotropy_in = input("Anisotropy");
+  ShaderInput *rotation_in = input("Rotation");
+  ShaderInput *roughness_in = input("Roughness");
+  ShaderInput *tangent_in = input("Tangent");
+  ShaderInput *normal_in = input("Normal");
+  ShaderInput *temperature_in = input("Temperature");
+
+  compiler.add_node(NODE_CLOSURE_BSDF,
+                    compiler.encode_uchar4(CLOSURE_BSDF_FULL_FRESNEL_ID,
+                                           compiler.stack_assign(roughness_in),
+                                           compiler.stack_assign(anisotropy_in),
+                                           compiler.closure_mix_weight_offset()),
+                    compiler.encode_uchar4(compiler.stack_assign(ior_object_in),
+                                           compiler.stack_assign(k_object_in),
+                                           compiler.stack_assign(ior_medium_in),
+                                           compiler.stack_assign(k_medium_in)),
+                    compiler.encode_uchar4(compiler.stack_assign(base_color_in),
+                                           compiler.stack_assign(rotation_in),
+                                           compiler.stack_assign(tangent_in),
+                                           distribution));
+
+   compiler.add_node(compiler.stack_assign_if_linked(normal_in));
+}
+
+void FullFresnelBsdfNode::compile(OSLCompiler &compiler)
+{
+  compiler.parameter(this, "distribution");
+  compiler.add(this, "node_full_fresnel_bsdf");
+}
+//************************************************************************************************************
+//END CODE PETER TER HEERDT UAntwerpen ***********************************************************************
+//************************************************************************************************************
+
 /* Glossy BSDF Closure */
 
 NODE_DEFINE(GlossyBsdfNode)

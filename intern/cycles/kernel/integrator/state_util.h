@@ -35,6 +35,10 @@ ccl_device_forceinline void integrator_state_write_ray(IntegratorState state,
                 "Generated packed_ray struct is misaligned with Ray struct");
   static_assert(offsetof(packed_ray, time) == offsetof(Ray, time),
                 "Generated packed_ray struct is misaligned with Ray struct");
+  //START CODE PETER TER HEERDT UANTWERPEN*******************************************************************************
+  static_assert(offsetof(packed_ray, which_refracted) == offsetof(Ray, which_refracted),
+                "Generated packed_ray struct is misaligned with Ray struct");
+  //END CODE PETER TER HEERDT UANTWERPEN*********************************************************************************
   static_assert(offsetof(packed_ray, dP) == 12 + offsetof(Ray, P),
                 "Generated packed_ray struct is misaligned with Ray struct");
   static_assert(offsetof(packed_ray, dD) == 12 + offsetof(Ray, D),
@@ -45,6 +49,13 @@ ccl_device_forceinline void integrator_state_write_ray(IntegratorState state,
   INTEGRATOR_STATE_WRITE(state, ray, tmin) = ray->tmin;
   INTEGRATOR_STATE_WRITE(state, ray, tmax) = ray->tmax;
   INTEGRATOR_STATE_WRITE(state, ray, time) = ray->time;
+  //**********************************************************************************************************************************
+  //START CODE PETER TER HEERDT UANTWERPEN********************************************************************************************
+  //**********************************************************************************************************************************
+  INTEGRATOR_STATE_WRITE(state, ray, which_refracted) = ray->which_refracted;
+  //**********************************************************************************************************************************
+  //END CODE PETER TER HEERDT UANTWERPEN**********************************************************************************************
+  //**********************************************************************************************************************************
   INTEGRATOR_STATE_WRITE(state, ray, dP) = ray->dP;
   INTEGRATOR_STATE_WRITE(state, ray, dD) = ray->dD;
 #endif
@@ -65,6 +76,13 @@ ccl_device_forceinline void integrator_state_read_ray(ConstIntegratorState state
   ray->time = INTEGRATOR_STATE(state, ray, time);
   ray->dP = INTEGRATOR_STATE(state, ray, dP);
   ray->dD = INTEGRATOR_STATE(state, ray, dD);
+//**********************************************************************************************************************************
+//START CODE PETER TER HEERDT UANTWERPEN********************************************************************************************
+//**********************************************************************************************************************************
+  ray->which_refracted = INTEGRATOR_STATE(state, ray, which_refracted);
+//**********************************************************************************************************************************
+//END CODE PETER TER HEERDT UANTWERPEN**********************************************************************************************
+//**********************************************************************************************************************************
 #endif
 }
 

@@ -7,6 +7,9 @@
 
 #pragma once
 
+
+#include <iostream>
+
 #include "kernel/closure/bsdf_util.h"
 
 #include "kernel/sample/pattern.h"
@@ -27,6 +30,13 @@ enum MicrofacetFresnel {
   CONDUCTOR,
   GENERALIZED_SCHLICK,
   F82_TINT,
+  //***************************************************************************
+  //START CODE PETER TER HEERDT UANTWERPEN*************************************
+  //***************************************************************************
+  FULL_FRESNEL_COMPLEX,
+  //***************************************************************************
+  //START CODE PETER TER HEERDT UANTWERPEN*************************************
+  //***************************************************************************
 };
 
 typedef struct FresnelThinFilm {
@@ -44,6 +54,24 @@ typedef struct FresnelDielectricTint {
 typedef struct FresnelConductor {
   Spectrum n, k;
 } FresnelConductor;
+
+//***************************************************************************
+//START CODE PETER TER HEERDT UANTWERPEN ************************************
+//***************************************************************************
+//It's very important to put the Spectrum (=float3) objects first, then the float's, then the int's, then the bool's.
+//It's necessary to preserve good alignment. Otherwise you will have a cycles viewport rendering but when pressing F12,
+//to get a full rendering, blender will crash!!
+typedef struct FullFresnelComplex {
+  Spectrum n_object, k_object, n_medium, k_medium; //the complex and real parts of object and medium ior.
+  Spectrum cos_refracted; //In case of dispersion we have 3 different refracted angles, so the type is Spectrum!
+  float ray_length; //we store the raylength to determine the absorption.
+  int which_cos_refracted; //this number determines which of the 3 transmitted rays is sampled. If it is -1, sampling has not occurred yet.
+  bool is_backfacing;  //when true we have internal reflection or refraction.
+  bool has_dispersion;  //boolean which indicates whether there is dispersion or not. (If all n and k values are equal, no dispersion!
+} FullFresnelComplex;
+//***************************************************************************
+//END CODE PETER TER HEERDT UANTWERPEN **************************************
+//***************************************************************************
 
 typedef struct FresnelGeneralizedSchlick {
   FresnelThinFilm thin_film;
@@ -262,6 +290,42 @@ ccl_device_forceinline void microfacet_fresnel(KernelGlobals kg,
     *r_reflectance = saturate(F_schlick - fresnel->b * cos_theta_i * mu5 * mu);
     *r_transmittance = zero_spectrum();
   }
+  //***********************************************************************************************************************************
+  //START CODE PETER TER HEERDT UANTWERPEN*********************************************************************************************
+  //***********************************************************************************************************************************
+  else if(bsdf->fresnel_type == MicrofacetFresnel::FULL_FRESNEL_COMPLEX)
+  {
+    ccl_private FullFresnelComplex *fresnel = (ccl_private FullFresnelComplex *)bsdf->fresnel;
+    Spectrum F;
+    if(!r_cos_theta_t)
+      F = full_fresnel_complex(cos_theta_i, fresnel->n_object, fresnel->k_object, fresnel->n_medium,
+                                      fresnel->k_medium, fresnel->is_backfacing, nullptr);
+    else
+    {
+      Spectrum cos_refracted = zero_spectrum();
+      F = full_fresnel_complex(cos_theta_i, fresnel->n_object, fresnel->k_object, fresnel->n_medium,
+                               fresnel->k_medium, fresnel->is_backfacing, &cos_refracted);
+      fresnel->cos_refracted = cos_refracted;
+      *r_cos_theta_t = cos_refracted[0];
+    }
+
+    float d = fresnel->ray_length;
+    Spectrum total = one_spectrum();
+    Spectrum absor;
+    if(fresnel->is_backfacing)  
+      //We use 625 nm, 525 nm and 465 nm as dominant wavelengths for red, green and blue in sRGB.
+      absor = -d*fresnel->k_object * 4.f * 3.141592653590/0.000001 * make_float3(1.f/0.625, 1.f/0.550, 1.f/0.465);
+    else
+      absor = -d*fresnel->k_medium * 4.f * 3.141592653590/0.000001 * make_float3(1.f/0.625, 1.f/0.550, 1.f/0.465);
+
+    total = make_float3(expf(absor.x), expf(absor.y), expf(absor.z));
+
+    *r_reflectance = F*total;
+    *r_transmittance = (one_spectrum() - F)*total;
+  }
+  //***********************************************************************************************************************************
+  //END CODE PETER TER HEERDT UANTWERPEN***********************************************************************************************
+  //***********************************************************************************************************************************
   else if (bsdf->fresnel_type == MicrofacetFresnel::GENERALIZED_SCHLICK) {
     ccl_private FresnelGeneralizedSchlick *fresnel = (ccl_private FresnelGeneralizedSchlick *)
                                                          bsdf->fresnel;
@@ -410,6 +474,7 @@ ccl_device Spectrum bsdf_microfacet_estimate_albedo(KernelGlobals kg,
 {
   const float cos_NI = dot(sd->wi, bsdf->N);
   Spectrum reflectance, transmittance;
+
   microfacet_fresnel(kg, bsdf, cos_NI, nullptr, &reflectance, &transmittance);
 
   reflectance *= (float)eval_reflection;
@@ -576,18 +641,86 @@ ccl_device Spectrum bsdf_microfacet_eval(KernelGlobals kg,
     return zero_spectrum();
   }
 
+  //***********************************************************************************************************************
+  //START CODE PETER TER HEERDT UANTWERPEN*********************************************************************************
+  //***********************************************************************************************************************
+  float m_eta = bsdf->ior;
+  float m_inv_eta = 1.f/bsdf->ior;
+  int index = -1;
+  if(bsdf->fresnel_type == MicrofacetFresnel::FULL_FRESNEL_COMPLEX)
+  {
+    ccl_private FullFresnelComplex *fresnel = (ccl_private FullFresnelComplex *)bsdf->fresnel;
+
+    int idx = fresnel->which_cos_refracted;
+
+    if(idx >= 0)
+      index = idx;
+    else
+      idx = 0;
+
+    float n_med = fresnel->n_medium[idx];
+    float k_med = fresnel->k_medium[idx];
+    float n_ob = fresnel->n_object[idx];
+    float k_ob = fresnel->k_object[idx];
+
+    float a = n_med * n_ob + k_med * k_ob;
+    m_eta = a / (n_med * n_med + k_med * k_med);
+    m_inv_eta = a / (n_ob * n_ob + k_ob * k_ob);
+
+    if(fresnel->is_backfacing)
+    {
+      float temp = m_eta;
+      m_eta = m_inv_eta;
+      m_inv_eta = temp;
+    }
+  }
+  //***********************************************************************************************************************
+  //END CODE PETER TER HEERDT UANTWERPEN***********************************************************************************
+  //***********************************************************************************************************************
+
   /* Compute half vector. */
   /* TODO: deal with the case when `bsdf->ior` is close to one. */
   /* TODO: check if the refraction configuration is valid. See `btdf_ggx()` in
    * `eevee_bxdf_lib.glsl`. */
-  float3 H = is_transmission ? -(bsdf->ior * wo + wi) : (wi + wo);
+  float3 H = is_transmission ? /*-*/(/*bsdf->ior*/m_eta * wo + wi) : (wi + wo);     //CODE PETER TER HEERDT UANTWERPEN: no minus sign
   const float inv_len_H = safe_divide(1.0f, len(H));
   H *= inv_len_H;
 
   /* Compute Fresnel coefficients. */
-  const float cos_HI = dot(H, wi);
+  /*const*/ float cos_HI = dot(H, wi);  //CODE PETER TER HEERDT: non-const!!
+
+  //***********************************************************************************************************************
+  //START CODE PETER TER HEERDT UANTWERPEN*********************************************************************************
+  //***********************************************************************************************************************
+  //Check for correct orientation of the half vector!
+  //if(cos_HI < 0)
+  //{
+  //  H *= -1.f;
+  //  cos_HI *=-1.f;
+  //}
+  //***********************************************************************************************************************
+  //END CODE PETER TER HEERDT UANTWERPEN***********************************************************************************
+  //***********************************************************************************************************************
+
   Spectrum reflectance, transmittance;
   microfacet_fresnel(kg, bsdf, cos_HI, nullptr, &reflectance, &transmittance);
+
+  //***********************************************************************************************************************
+  //START CODE PETER TER HEERDT UANTWERPEN*********************************************************************************
+  //***********************************************************************************************************************
+  //When we already sampled a transmitted wavelength before in case of dispersion, we proceed with just this wavelength
+  if(index >= 0)
+  {
+    float sampled_transmission = transmittance[index];
+    transmittance = zero_spectrum();
+    transmittance[index] = sampled_transmission;
+    float sampled_reflectance = reflectance[index];
+    reflectance = zero_spectrum();
+    reflectance[index] = sampled_reflectance;
+  }
+  //***********************************************************************************************************************
+  //END CODE PETER TER HEERDT UANTWERPEN*********************************************************************************
+  //***********************************************************************************************************************
 
   if (is_zero(reflectance) && is_zero(transmittance)) {
     return zero_spectrum();
@@ -618,9 +751,18 @@ ccl_device Spectrum bsdf_microfacet_eval(KernelGlobals kg,
     lambdaO = bsdf_aniso_lambda<m_type>(alpha_x, alpha_y, local_O);
   }
 
-  float common = D / cos_NI *
-                 (is_transmission ? sqr(bsdf->ior * inv_len_H) * fabsf(cos_HI * dot(H, wo)) :
-                                    0.25f);
+  float common = D / cos_NI * (is_transmission ? sqr(/*bsdf->ior*/ m_eta * inv_len_H)
+                                                     * fabsf(cos_HI * dot(H, wo)) : 0.25f);   //CODE PETER TER HEERDT
+
+  //***********************************************************************************************************************
+  //START CODE PETER TER HEERDT UANTWERPEN*********************************************************************************
+  //***********************************************************************************************************************
+  //const float cos_HO = dot(H, is_transmission ? wo /* refracted dir vs H */ : wi);
+  //const float common = D / cos_NI * (is_transmission ? fabsf(cos_HI * cos_HO) / sqr(cos_HO + cos_HI * m_inv_eta): 0.25f);
+  //***********************************************************************************************************************
+  //END CODE PETER TER HEERDT UANTWERPEN***********************************************************************************
+  //***********************************************************************************************************************
+
 
   const float pdf_reflect = average(reflectance) / average(reflectance + transmittance);
   const float lobe_pdf = is_transmission ? 1.0f - pdf_reflect : pdf_reflect;
@@ -642,18 +784,19 @@ ccl_device int bsdf_microfacet_sample(KernelGlobals kg,
                                       ccl_private float *eta)
 {
   ccl_private const MicrofacetBsdf *bsdf = (ccl_private const MicrofacetBsdf *)sc;
-
   const float3 N = bsdf->N;
   const float cos_NI = dot(N, wi);
+
   if (cos_NI <= 0) {
     /* Incident angle from the lower hemisphere is invalid. */
     return LABEL_NONE;
   }
 
-  const float m_eta = bsdf->ior;
-  const float m_inv_eta = 1.0f / bsdf->ior;
+  float m_eta = bsdf->ior;              //CODE PETER TER HEERDT UANTWERPEN: non const!
+  float m_inv_eta = 1.0f / bsdf->ior;   //CODE PETER TER HEERDT UANTWERPEN: non const!
   const float alpha_x = bsdf->alpha_x;
   const float alpha_y = bsdf->alpha_y;
+
   bool m_singular = !bsdf_microfacet_eval_flag(bsdf);
 
   /* Half vector. */
@@ -701,6 +844,74 @@ ccl_device int bsdf_microfacet_sample(KernelGlobals kg,
   const float pdf_reflect = average(reflectance) / average(reflectance + transmittance);
   const bool do_refract = (rand.z >= pdf_reflect);
 
+  //***********************************************************************************************************************
+  //START CODE PETER TER HEERDT UANTWERPEN*********************************************************************************
+  //***********************************************************************************************************************
+  float sample_factor = 1.f;
+  if(bsdf->fresnel_type == MicrofacetFresnel::FULL_FRESNEL_COMPLEX)
+  {
+    ccl_private FullFresnelComplex *fresnel = (ccl_private FullFresnelComplex *)bsdf->fresnel;
+    int index = -1;
+    float W0 = GET_SPECTRUM_CHANNEL(transmittance, 0);
+    float W1 = GET_SPECTRUM_CHANNEL(transmittance, 1);
+    float W2 = GET_SPECTRUM_CHANNEL(transmittance, 2);
+    float WSum = W0 + W1 + W2;
+
+    if(do_refract)
+    {
+      if(fresnel->has_dispersion && WSum > 0.f)
+      {
+        float r = rand.x * WSum;
+        if(r < W0)
+          index = 0;
+        else if (r < W0 + W1)
+          index = 1;
+        else
+          index = 2;
+
+        sample_factor = (index == 0) ? (W0/WSum) : (index == 1 ? (W1/WSum) : (W2/WSum));
+        fresnel->which_cos_refracted = index;     //Set the picked index
+        cos_HO = fresnel->cos_refracted[index];   //cos_HO originally is fresnel->cos_refracted[0], so adjust!
+
+        //Adjust the transmittance
+        float temp_trans = GET_SPECTRUM_CHANNEL(transmittance, index);
+        transmittance = zero_spectrum();
+        GET_SPECTRUM_CHANNEL(transmittance, index) = temp_trans;
+      }
+      else
+        index = 0;    //With no dispersion everything is the same so just choose channel 0.
+
+      float n_med = fresnel->n_medium[index];
+      float k_med = fresnel->k_medium[index];
+      float n_ob = fresnel->n_object[index];
+      float k_ob = fresnel->k_object[index];
+      float a = n_med * n_ob + k_med * k_ob;
+
+      m_eta = a / (n_med * n_med + k_med * k_med);
+      m_inv_eta = a / (n_ob * n_ob + k_ob * k_ob);
+      if(fresnel->is_backfacing)
+      {
+        float temp = m_eta;
+        m_eta = m_inv_eta;
+        m_inv_eta = temp;
+      }
+    }
+    else
+    {
+      //in case of a reflection, we check whether we already sampled a wavelength, because in that case we adapt the reflectance accordingly!
+      if(fresnel->which_cos_refracted >= 0)
+      {
+        float temp_refl = GET_SPECTRUM_CHANNEL(reflectance, fresnel->which_cos_refracted);
+        reflectance = zero_spectrum();
+        GET_SPECTRUM_CHANNEL(reflectance, fresnel->which_cos_refracted) = temp_refl;
+      }
+    }
+  }
+  //***********************************************************************************************************************
+  //END CODE PETER TER HEERDT UANTWERPEN***********************************************************************************
+  //***********************************************************************************************************************
+
+
   /* Compute actual reflected or refracted direction. */
   *wo = do_refract ? refract_angle(wi, H, cos_HO, m_inv_eta) : 2.0f * cos_HI * H - wi;
   if ((dot(Ng, *wo) < 0) != do_refract) {
@@ -709,7 +920,7 @@ ccl_device int bsdf_microfacet_sample(KernelGlobals kg,
 
   if (do_refract) {
     *eval = transmittance;
-    *pdf = 1.0f - pdf_reflect;
+    *pdf = (1.0f - pdf_reflect)*sample_factor;    //CODE PETER TER HEERDT UANTWERPEN: * sample_factor.
     /* If the IOR is close enough to 1.0, just treat the interaction as specular. */
     m_singular = m_singular || (fabsf(m_eta - 1.0f) < 1e-4f);
   }
@@ -754,7 +965,7 @@ ccl_device int bsdf_microfacet_sample(KernelGlobals kg,
   }
 
   *sampled_roughness = make_float2(alpha_x, alpha_y);
-  *eta = do_refract ? m_eta : 1.0f;
+  *eta = do_refract ? m_eta : m_inv_eta;
 
   return (do_refract ? LABEL_TRANSMIT : LABEL_REFLECT) |
          (m_singular ? LABEL_SINGULAR : LABEL_GLOSSY);
@@ -762,6 +973,72 @@ ccl_device int bsdf_microfacet_sample(KernelGlobals kg,
 
 /* Fresnel term setup functions. These get called after the distribution-specific setup functions
  * like bsdf_microfacet_ggx_setup. */
+
+//******************************************************************************************************************
+// START CODE PETER TER HEERDT UANTWERPEN **************************************************************************
+//******************************************************************************************************************
+ccl_device void bsdf_microfacet_setup_full_fresnel_complex(KernelGlobals kg,
+                                                           ccl_private MicrofacetBsdf *bsdf,
+                                                           ccl_private const ShaderData *sd,
+                                                           ccl_private FullFresnelComplex *fresnel,
+                                                           const bool preserve_energy)
+{
+  bsdf->fresnel_type = MicrofacetFresnel::FULL_FRESNEL_COMPLEX;
+  bsdf->fresnel = fresnel;
+  bsdf->sample_weight *= average(bsdf_microfacet_estimate_albedo(kg, sd, bsdf, true, true));
+
+  if (preserve_energy)
+  {
+    /* 1) Provide an effective (scalar) eta for the GGX-glass LUTs.
+       Derivation mirrors the one you already use at sample/eval time:
+         m_eta = (n_m*n_o + k_m*k_o) / (n_m^2 + k_m^2)
+       We just average the three channels to get a single eta. */
+      Spectrum n_m = fresnel->n_medium;
+      Spectrum k_m = fresnel->k_medium;
+      Spectrum n_o = fresnel->n_object;
+      Spectrum k_o = fresnel->k_object;
+
+      Spectrum a       = n_m * n_o + k_m * k_o;
+      Spectrum denom_m = n_m * n_m + k_m * k_m;
+      Spectrum eta_rgb = a / denom_m;                 // forward direction
+      Spectrum inveta_rgb = a / (n_o * n_o + k_o * k_o);
+
+      float eta_eff = average(eta_rgb);
+      float inv_eta_eff = average(inveta_rgb);
+      if (fresnel->is_backfacing)
+        eta_eff = inv_eta_eff;                        // swap inside/outside
+
+      /* Clamp to something sane for LUT indexing. */
+      eta_eff = fmaxf(eta_eff, 1.0e-4f);
+      bsdf->ior = eta_eff;
+
+    /* 2) Estimate Fss from your *full* Fresnel by fitting the F82-tint form, exactly like
+          Cycles does for conductors. We evaluate your full Fresnel reflectance at cosI=1
+          and cosI=1/7, then use the closed-form Fss of that fitted curve. */
+    Spectrum F0 = full_fresnel_complex(1.0f,
+                                       fresnel->n_object, fresnel->k_object,
+                                       fresnel->n_medium, fresnel->k_medium,
+                                       fresnel->is_backfacing, nullptr);
+    Spectrum F82 = full_fresnel_complex(1.0f/7.0f,
+                                        fresnel->n_object, fresnel->k_object,
+                                        fresnel->n_medium, fresnel->k_medium,
+                                        fresnel->is_backfacing, nullptr);
+
+    /* Same constants Cycles uses:
+       (1 - 1/7)^5 = 0.46266436,  and  1 / ( (1/7)*(1 - 1/7)^6 ) = 17.651384 */
+    const float c1 = 0.46266436f;
+    const float c2 = 17.651384f;
+
+    Spectrum B   = (mix(F0, one_spectrum(), c1) - F82) * c2;
+    Spectrum Fss = saturate(mix(F0, one_spectrum(), 1.0f/21.0f) - B * (1.0f/126.0f));
+
+    /* Tell GGX to preserve multi-bounce energy with this per-channel single-scatter albedo. */
+    microfacet_ggx_preserve_energy(kg, bsdf, sd, Fss);
+  }
+}
+//******************************************************************************************************************
+// END PETER TER HEERDT UANTWERPEN **************************************************************************
+//******************************************************************************************************************
 
 ccl_device void bsdf_microfacet_setup_fresnel_conductor(KernelGlobals kg,
                                                         ccl_private MicrofacetBsdf *bsdf,
@@ -773,7 +1050,8 @@ ccl_device void bsdf_microfacet_setup_fresnel_conductor(KernelGlobals kg,
   bsdf->fresnel = fresnel;
   bsdf->sample_weight *= average(bsdf_microfacet_estimate_albedo(kg, sd, bsdf, true, true));
 
-  if (preserve_energy) {
+  if (preserve_energy)
+  {
     /* In order to estimate Fss of the conductor, we fit the F82-tint model to it based on the
      * value at 0° and ~82° and then use the analytic expression for its Fss. */
     Spectrum F0 = fresnel_conductor(1.0f, fresnel->n, fresnel->k);
@@ -986,7 +1264,6 @@ ccl_device int bsdf_microfacet_ggx_sample(KernelGlobals kg,
                                           ccl_private float2 *sampled_roughness,
                                           ccl_private float *eta)
 {
-
   int label = bsdf_microfacet_sample<MicrofacetType::GGX>(
       kg, sc, Ng, wi, rand, eval, wo, pdf, sampled_roughness, eta);
   *eval *= ((ccl_private const MicrofacetBsdf *)sc)->energy_scale;

@@ -59,7 +59,14 @@ DefNode(ShaderNode,     SH_NODE_BSDF_GLASS,         def_glass,              "BSD
 DefNode(ShaderNode,     SH_NODE_BSDF_GLOSSY,        def_glossy,             "BSDF_GLOSSY",        BsdfAnisotropic,  "Glossy BSDF",       "Reflection with microfacet distribution, used for materials such as metal or mirrors")
 DefNode(ShaderNode,     SH_NODE_BSDF_HAIR_PRINCIPLED,  def_hair_principled, "BSDF_HAIR_PRINCIPLED", BsdfHairPrincipled,  "Principled Hair BSDF", "Physically-based, easy-to-use shader for rendering hair and fur")
 DefNode(ShaderNode,     SH_NODE_BSDF_HAIR,          def_hair,               "BSDF_HAIR",          BsdfHair,         "Hair BSDF",         "Reflection and transmission shaders optimized for hair rendering")
-DefNode(ShaderNode,     SH_NODE_BSDF_METALLIC,        def_metallic,             "BSDF_METALLIC",        BsdfMetallic,  "Metallic BSDF",       "Metallic reflection with microfacet distribution, and metallic fresnel")
+DefNode(ShaderNode,     SH_NODE_BSDF_METALLIC,      def_metallic,           "BSDF_METALLIC",      BsdfMetallic,     "Metallic BSDF",     "Metallic reflection with microfacet distribution, and metallic fresnel")
+//*******************************************************************************************************************************
+//START CODE PETER TER HEERDT UANTWERPEN*****************************************************************************************
+//*******************************************************************************************************************************
+DefNode(ShaderNode,     SH_NODE_BSDF_FULL_FRESNEL,  def_full_fresnel,       "BSDF_FULL_FRESNEL",  BsdfFullFresnel,  "Full Fresnel BSDF", "Full Physically based glossy reflection, refraction and absorption with microfacet distribution, and fresnel for lossy materials")
+//*******************************************************************************************************************************
+//END CODE PETER TER HEERDT UANTWERPEN*******************************************************************************************
+//*******************************************************************************************************************************
 DefNode(ShaderNode,     SH_NODE_BSDF_PRINCIPLED,    def_principled,         "BSDF_PRINCIPLED",    BsdfPrincipled,   "Principled BSDF",   "Physically-based, easy-to-use shader for rendering surface materials, based on the OpenPBR model")
 DefNode(ShaderNode,     SH_NODE_BSDF_RAY_PORTAL,    0,                      "BSDF_RAY_PORTAL",    BsdfRayPortal,    "Ray Portal BSDF",   "Continue tracing from an arbitrary new position and in a new direction")
 DefNode(ShaderNode,     SH_NODE_BSDF_REFRACTION,    def_refraction,         "BSDF_REFRACTION",    BsdfRefraction,   "Refraction BSDF",   "Glossy refraction with sharp or microfacet distribution, typically used for materials that transmit light")

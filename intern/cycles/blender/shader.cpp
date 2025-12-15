@@ -574,6 +574,29 @@ static ShaderNode *add_node(Scene *scene,
     }
     node = metal;
   }
+  //************************************************************************************************************
+  //START CODE PETER TER HEERDT UAntwerpen *********************************************************************
+  //************************************************************************************************************
+  else if (b_node.is_a(&RNA_ShaderNodeBsdfFullFresnel)) {
+    BL::ShaderNodeBsdfFullFresnel b_full_fresnel_node(b_node);
+    FullFresnelBsdfNode *full_fresnel = graph->create_node<FullFresnelBsdfNode>();
+
+    switch (b_full_fresnel_node.distribution()) {
+      case BL::ShaderNodeBsdfFullFresnel::distribution_BECKMANN:
+        full_fresnel->set_distribution(CLOSURE_BSDF_MICROFACET_BECKMANN_GLASS_ID);
+        break;
+      case BL::ShaderNodeBsdfFullFresnel::distribution_GGX:
+        full_fresnel->set_distribution(CLOSURE_BSDF_MICROFACET_GGX_GLASS_ID);
+        break;
+      case BL::ShaderNodeBsdfFullFresnel::distribution_MULTI_GGX:
+        full_fresnel->set_distribution(CLOSURE_BSDF_MICROFACET_MULTI_GGX_GLASS_ID);
+        break;
+    }
+    node = full_fresnel;
+  }
+  //************************************************************************************************************
+  //END CODE PETER TER HEERDT UAntwerpen *********************************************************************
+  //************************************************************************************************************
   else if (b_node.is_a(&RNA_ShaderNodeBsdfAnisotropic)) {
     BL::ShaderNodeBsdfAnisotropic b_glossy_node(b_node);
     GlossyBsdfNode *glossy = graph->create_node<GlossyBsdfNode>();

@@ -4309,6 +4309,24 @@ static const EnumPropertyItem node_metallic_fresnel_type_items[] = {
     {0, nullptr, 0, nullptr, nullptr},
 };
 
+//*******************************************************************************************************************************
+//START CODE PETER TER HEERDT UANTWERPEN*****************************************************************************************
+//*******************************************************************************************************************************
+static const EnumPropertyItem node_full_fresnel_distribution_items[] = {
+    {SHD_GLOSSY_BECKMANN, "BECKMANN", 0, "Beckmann", ""},
+    {SHD_GLOSSY_GGX, "GGX", 0, "GGX", ""},
+    {SHD_GLOSSY_MULTI_GGX,
+     "MULTI_GGX",
+     0,
+     "Multiscatter GGX",
+     "GGX with additional correction to account for multiple scattering, preserve energy and "
+     "prevent unexpected darkening at high roughness"},
+    {0, nullptr, 0, nullptr, nullptr},
+};
+//*******************************************************************************************************************************
+//END CODE PETER TER HEERDT UANTWERPEN*******************************************************************************************
+//*******************************************************************************************************************************
+
 static const EnumPropertyItem node_glossy_items[] = {
     {SHD_GLOSSY_BECKMANN, "BECKMANN", 0, "Beckmann", ""},
     {SHD_GLOSSY_GGX, "GGX", 0, "GGX", ""},
@@ -5893,6 +5911,17 @@ static void def_metallic(StructRNA *srna)
   RNA_def_property_enum_sdna(prop, nullptr, "custom2");
   RNA_def_property_enum_items(prop, node_metallic_fresnel_type_items);
   RNA_def_property_ui_text(prop, "Fresnel Type", "Fresnel method used to tint the metal");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
+}
+
+static void def_full_fresnel(StructRNA *srna)
+{
+  PropertyRNA *prop;
+
+  prop = RNA_def_property(srna, "distribution", PROP_ENUM, PROP_NONE);
+  RNA_def_property_enum_sdna(prop, nullptr, "custom1");
+  RNA_def_property_enum_items(prop, node_full_fresnel_distribution_items);
+  RNA_def_property_ui_text(prop, "Distribution", "Light scattering distribution on rough surface");
   RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
 }
 

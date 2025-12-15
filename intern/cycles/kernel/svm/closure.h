@@ -60,15 +60,30 @@ ccl_device
       return svm_node_closure_bsdf_skip(kg, offset, type);
     }
   }
-  else IF_KERNEL_NODES_FEATURE(EMISSION) {
-    if (type != CLOSURE_BSDF_PRINCIPLED_ID) {
-      /* Only principled BSDF can have emission. */
+  //******************************************************************************************************************
+  // START CODE PETER TER HEERDT UANTWERPEN **************************************************************************
+  //******************************************************************************************************************
+  //else IF_KERNEL_NODES_FEATURE(EMISSION) {
+  //  if (type != CLOSURE_BSDF_PRINCIPLED_ID) {
+  //    /* Only principled BSDF can have emission. */
+  //    return svm_node_closure_bsdf_skip(kg, offset, type);
+  //  }
+  //}
+  //else {
+  //  return svm_node_closure_bsdf_skip(kg, offset, type);
+  //}
+
+  else IF_KERNEL_NODES_FEATURE(EMISSION)
+  {
+    if (type != CLOSURE_BSDF_PRINCIPLED_ID && type != CLOSURE_BSDF_FULL_FRESNEL_ID)
+    {
+      /* Only Principled and Full Fresnel BSDF can have emission. */
       return svm_node_closure_bsdf_skip(kg, offset, type);
     }
   }
-  else {
-    return svm_node_closure_bsdf_skip(kg, offset, type);
-  }
+  //******************************************************************************************************************
+  // END CODE PETER TER HEERDT UANTWERPEN ****************************************************************************
+  //******************************************************************************************************************
 
   float3 N = stack_valid(data_node.x) ? stack_load_float3(stack, data_node.x) : sd->N;
   N = safe_normalize_fallback(N, sd->N);
@@ -549,6 +564,106 @@ ccl_device
       }
       break;
     }
+//******************************************************************************************************************
+// START CODE PETER TER HEERDT UANTWERPEN **************************************************************************
+//******************************************************************************************************************
+    case CLOSURE_BSDF_FULL_FRESNEL_ID:
+    {
+#ifdef __CAUSTICS_TRICKS__
+      const bool reflective_caustics = (kernel_data.integrator.caustics_reflective ||
+                                        (path_flag & PATH_RAY_DIFFUSE) == 0);
+      const bool refractive_caustics = (kernel_data.integrator.caustics_refractive ||
+                                        (path_flag & PATH_RAY_DIFFUSE) == 0);
+      if (!(reflective_caustics || refractive_caustics))
+        break;
+#else
+      const bool reflective_caustics = true;
+      const bool refractive_caustics = true;
+#endif
+      ccl_private MicrofacetBsdf *bsdf = (ccl_private MicrofacetBsdf *)bsdf_alloc(
+          sd, sizeof(MicrofacetBsdf), rgb_to_spectrum(make_float3(mix_weight)));
+
+      if (bsdf != NULL)
+      {
+        uint n_object_offset, k_object_offset, n_medium_offset, k_medium_offset;
+        uint base_color_offset, rotation_offset, tangent_offset, distribution_index;
+
+        svm_unpack_node_uchar4(node.z, &n_object_offset, &k_object_offset, &n_medium_offset, &k_medium_offset);
+        svm_unpack_node_uchar4(node.w, &base_color_offset, &rotation_offset, &tangent_offset, &distribution_index);
+
+        //const float3 color = saturate(stack_load_float3(stack, base_color_offset));
+
+        float3 valid_reflection_N = maybe_ensure_valid_specular_reflection(sd, N);
+        float3 T = stack_load_float3(stack, tangent_offset);
+
+        float roughness = saturatef(param1);
+        float alpha_x = sqr(roughness), alpha_y = sqr(roughness);
+
+        const float anisotropy = saturatef(param2);
+
+        if (anisotropy > 0.f)
+        {
+          float aspect = sqrtf(1.0f - anisotropy * 0.9f);
+          alpha_x /= aspect;
+          alpha_y *= aspect;
+          float anisotropic_rotation = stack_load_float(stack, rotation_offset);
+          if (anisotropic_rotation != 0.0f)
+            T = rotate_around_axis(T, N, anisotropic_rotation * M_2PI_F);
+        }
+
+        //BSDF member values need to be set before the bdsf_microfacet_beckmann_setup(...) or
+        //bsdf_microfacet_ggx_setup(...) functions, because these use the bsdf variable.
+        bsdf->N = valid_reflection_N;
+        bsdf->T = T;
+        bsdf->alpha_x = alpha_x;
+        bsdf->alpha_y = alpha_y;
+
+        bsdf->ior = 1.f;
+
+        /* Setup microfacet BSDF */
+        ClosureType distribution = (ClosureType)distribution_index;
+        if (distribution == CLOSURE_BSDF_MICROFACET_BECKMANN_GLASS_ID) {
+          sd->flag |= bsdf_microfacet_beckmann_glass_setup(bsdf);
+        }
+        else {
+          sd->flag |= bsdf_microfacet_ggx_glass_setup(bsdf);
+        }
+
+        const bool is_multiggx = (distribution == CLOSURE_BSDF_MICROFACET_MULTI_GGX_GLASS_ID);
+
+        const float3 n_object = max(stack_load_float3(stack, n_object_offset), zero_float3());
+        const float3 k_object = max(stack_load_float3(stack, k_object_offset), zero_float3());
+        const float3 n_medium = max(stack_load_float3(stack, n_medium_offset), zero_float3());
+        const float3 k_medium = max(stack_load_float3(stack, k_medium_offset), zero_float3());
+
+        ccl_private FullFresnelComplex *fresnel = (ccl_private FullFresnelComplex *)closure_alloc_extra(sd, sizeof(FullFresnelComplex));
+
+        if(fresnel)
+        {
+          //Make sure you respect the alignment of the FullFresnelComplex structure
+          fresnel->n_object = rgb_to_spectrum(n_object);
+          fresnel->k_object = rgb_to_spectrum(k_object);
+          fresnel->n_medium = rgb_to_spectrum(n_medium);
+          fresnel->k_medium = rgb_to_spectrum(k_medium);
+          fresnel->cos_refracted = rgb_to_spectrum(zero_float3());
+          fresnel->ray_length = sd->ray_length;
+          fresnel->which_cos_refracted = -1; //sd->which_refracted;
+          fresnel->is_backfacing = (sd->flag & SD_BACKFACING);
+
+          if(fabsf(fresnel->n_object.x - fresnel->n_object.y) < 0.00001f && fabsf(fresnel->n_object.x - fresnel->n_object.z) < 0.00001f)
+            fresnel->has_dispersion = false;
+          else
+            fresnel->has_dispersion = true;
+
+          bsdf_microfacet_setup_full_fresnel_complex(kg, bsdf, sd, fresnel, is_multiggx);
+        }
+      }
+
+      break;
+    }
+//*******************************************************************************************************************
+// END CODE PETER TER HEERDT UANTWERPEN *****************************************************************************
+//*******************************************************************************************************************
     case CLOSURE_BSDF_RAY_PORTAL_ID: {
       Spectrum weight = closure_weight * mix_weight;
       float3 position = stack_load_float3(stack, data_node.y);

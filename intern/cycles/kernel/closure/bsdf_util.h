@@ -4,10 +4,98 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Adapted code from Open Shading Language. */
+#include <iostream>
 
 #pragma once
 
 CCL_NAMESPACE_BEGIN
+//******************************************************************************************************************
+// START CODE PETER TER HEERDT UANTWERPEN **************************************************************************
+//******************************************************************************************************************
+/*Compute the full Fresnel reflectance for perpendicular (S-) and parallel (P-) polarized light. We do this for an object
+ *with complex IOR n_object + i*k_object in a medium of complex IOR n_medium + i*k_medium.
+ *
+ */
+ccl_device Spectrum full_fresnel_complex(const float& cos_theta_i, const Spectrum& n_ob, const Spectrum& k_ob,
+                    const Spectrum& n_med, const Spectrum& k_med, const bool& is_backfacing, Spectrum* cos_theta_out)
+{
+  kernel_assert(!isnan_safe(cos_theta_i));
+
+  //declaring some intermediate variables (see my full fresnel calculations)!
+  Spectrum a1 = n_med * n_ob + k_med * k_ob;
+  Spectrum b1 = n_med * k_ob - n_ob * k_med;
+  Spectrum oneoverF = is_backfacing ? (n_ob * n_ob + k_ob * k_ob) : (n_med * n_med + k_med * k_med);
+  Spectrum one = make_spectrum(1.0f);
+  Spectrum F = one / oneoverF;
+
+  Spectrum a2 = a1 * a1 - b1 * b1;
+  Spectrum b2 = 2.f * a1 * b1;
+
+  Spectrum cosi = make_spectrum(cos_theta_i);
+
+  Spectrum a3 = a2 - (one - cosi * cosi) / (F*F);
+  //next quick control assures correct physical energetic outcome of reflectance and transmittance (both between 0 and 1).
+  Spectrum b3 = fabs(b2);
+
+  Spectrum c = sqrt(2.f) * 0.5f * F;
+  Spectrum sqrt_aa_bb = sqrt(a3 * a3 + b3 * b3);
+  Spectrum A = c * sqrt(a3 + sqrt_aa_bb);
+  Spectrum B = c * sqrt(sqrt_aa_bb - a3);
+  Spectrum NN = F * F * a2 * cosi;
+  Spectrum MM = F * F * b3 * cosi;
+
+  //TODO: We could give access to the polarized reflectances, but for now we skip this.
+  Spectrum Rperp = ((cosi - A) * (cosi - A) + B * B) / ((cosi + A) * (cosi + A) + B * B);
+  Spectrum Rpara = ((A - NN) * (A - NN) + (B - MM) * (B - MM)) / ((A + NN) * (A + NN) + (B + MM) * (B + MM));
+  Spectrum Rn = 0.5f * (Rperp + Rpara);
+
+  if(cos_theta_out)
+  {
+    //for the calculations of the refracted angles, F is the other way around compared to the above calculations.
+    oneoverF = is_backfacing ? (n_med * n_med + k_med * k_med) : (n_ob * n_ob + k_ob * k_ob);
+    F = one / oneoverF;
+    Spectrum C1_sqr = a1 * a1 * F * F * (one - cosi * cosi);
+    Spectrum C2_sqr = b1 * b1 * F * F * (one - cosi * cosi);
+
+    Spectrum cos_sqr_out = one - 0.5f * (one + C1_sqr + C2_sqr - sqrt(one + (C1_sqr + C2_sqr) * (C1_sqr + C2_sqr) - 2.f * (C1_sqr - C2_sqr)));
+    cos_sqr_out.x = fmaxf(fminf(cos_sqr_out.x, 1.f), 0.f);
+    cos_sqr_out.y = fmaxf(fminf(cos_sqr_out.y, 1.f), 0.f);
+    cos_sqr_out.z = fmaxf(fminf(cos_sqr_out.z, 1.f), 0.f);
+
+    /* Relative to the surface normal so minus sign */
+    *cos_theta_out = -sqrt(cos_sqr_out);
+  }
+
+  return Rn;
+}
+
+/* Planck spectral radiance per unit wavelength (W·sr⁻¹·m⁻³). */
+ccl_device_inline float ff_planck_radiance_lambda(const float lambda_m, const float T)
+{
+  /* SI constants (float for speed/consistency with kernel math) */
+  const float h  = 6.62607015e-34f;
+  const float c  = 2.99792458e8f;
+  const float kB = 1.380649e-23f;
+
+  /* Guards to avoid NAN/INF in edge cases */
+  const float L = fmaxf(lambda_m, 1.0e-12f);
+  const float TK = fmaxf(T, 1.0e-6f);
+
+  const float x = (h * c) / (L * kB * TK);
+  /* clamp exponent to keep expf stable on all backends */
+  const float ex = expf(fminf(fmaxf(x, 0.0f), 80.0f));
+  const float denom = fmaxf(ex - 1.0f, 1.0e-30f);
+
+  /* Prefer explicit multiplications over powf for speed/precision */
+  const float L2 = L * L;
+  const float L5 = L2 * L2 * L;
+
+  return (2.0f * h * c * c) / (L5 * denom);
+}
+
+//******************************************************************************************************************
+// END CODE PETER TER HEERDT UANTWERPEN **************************************************************************
+//******************************************************************************************************************
 
 /* Compute fresnel reflectance for perpendicular (aka S-) and parallel (aka P-) polarized light.
  * If requested by the caller, r_phi is set to the phase shift on reflection.
@@ -36,6 +124,7 @@ ccl_device float2 fresnel_dielectric_polarized(float cos_theta_i,
        */
       *r_phi = zero_float2();
     }
+
     return one_float2();
   }
 

@@ -442,6 +442,15 @@ typedef enum ClosureType {
   CLOSURE_BSDF_GLOSSY_TOON_ID,
   CLOSURE_BSDF_HAIR_REFLECTION_ID,
 
+  //*************************************************************************************************
+  //START CODE PETER TER HEERDT UANTWERPEN***********************************************************
+  //*************************************************************************************************
+  /* Full Fresnel = glossy or transmission or both combined with absorption*/
+  CLOSURE_BSDF_FULL_FRESNEL_ID,               /* virtual closure */
+  //*************************************************************************************************
+  //END CODE PETER TER HEERDT UANTWERPEN*************************************************************
+  //*************************************************************************************************
+
   /* Transmission */
   CLOSURE_BSDF_MICROFACET_BECKMANN_REFRACTION_ID,
   CLOSURE_BSDF_MICROFACET_GGX_REFRACTION_ID,

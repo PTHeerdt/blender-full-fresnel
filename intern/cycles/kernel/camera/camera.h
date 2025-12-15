@@ -404,6 +404,11 @@ ccl_device_inline void camera_sample(KernelGlobals kg,
     ccl_global const DecomposedTransform *cam_motion = kernel_data_array(camera_motion);
     camera_sample_panorama(&kernel_data.cam, cam_motion, raster, lens_uv, ray);
   }
+
+  //START CODE PETER TER HEERDT UANTWERPEN*********************************************************************
+  /*No dispersion sampled yet so which_refracted = -1*/
+  ray->which_refracted = -1;
+  //END CODE PETER TER HEERDT UANTWERPEN***********************************************************************
 }
 
 /* Utilities */
