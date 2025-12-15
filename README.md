@@ -4,6 +4,44 @@ linking to external resources instead of including content in-line.
 See 'release/text/readme.html' for the end user read-me.
 -->
 
+# Blender – Full Fresnel Extension
+
+This repository is a research fork of Blender introducing a new Cycles
+material shader node: **Full Fresnel**.
+
+## Research context
+This code accompanies the paper:
+
+> *[Enhanced Multispectral Rendering with a Unified Complex-Index Fresnel Model in Blender.]*  
+> *[The Visual Computer]*
+
+The implementation enables evaluation of a physically complete Fresnel
+model for dielectric materials in Blender’s Cycles renderer.
+
+## Code base
+This work is based on Blender upstream commit:
+
+- **Commit:** `38363fb2d7ff`
+- **Tag in this repository:** `blender-base-38363fb2d7ff`
+
+All Full Fresnel changes are contained in the branch:
+
+- **Branch:** `full-fresnel`
+
+### View changes
+Compare the base code with the Full Fresnel implementation here:
+https://github.com/PTHeerdt/blender-full-fresnel/compare/blender-base-38363fb2d7ff...full-fresnel
+
+## Building
+This repository follows Blender’s standard build process.
+See the *Development* section below or Blender’s official documentation.
+
+## License
+This repository is distributed under the GNU General Public License v3,
+consistent with Blender’s licensing.
+
+-----------------------------------------------------------------------------------
+
 Blender
 =======
 
